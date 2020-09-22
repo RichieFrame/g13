@@ -23,12 +23,12 @@ G13_Stick::G13_Stick(G13_Device &keypad)
         G13_ActionPtr(new G13_Action_Keys(keypad, "KEY_" + name)));
   };
 
-  add_zone("UP", 0.0, 0.1, 1.0, 0.3);
-  add_zone("DOWN", 0.0, 0.7, 1.0, 0.9);
-  add_zone("LEFT", 0.0, 0.0, 0.2, 1.0);
-  add_zone("RIGHT", 0.8, 0.0, 1.0, 1.0);
-  add_zone("PAGEUP", 0.0, 0.0, 1.0, 0.1);
-  add_zone("PAGEDOWN", 0.0, 0.9, 1.0, 1.0);
+  add_zone("UP", 0.0, 0.0, 1.0, 0.3);
+  add_zone("DOWN", 0.0, 0.7, 1.0, 1.0);
+  add_zone("LEFT", 0.0, 0.0, 0.3, 1.0);
+  add_zone("RIGHT", 0.7, 0.0, 1.0, 1.0);
+  //add_zone("PAGEUP", 0.0, 0.0, 1.0, 0.1);
+  //add_zone("PAGEDOWN", 0.0, 0.9, 1.0, 1.0);
 }
 
 G13_StickZone *G13_Stick::zone(const std::string &name, bool create) {
@@ -92,12 +92,37 @@ void G13_StickZone::dump(std::ostream &out) const {
 }
 
 void G13_StickZone::test(const G13_ZoneCoord &loc) {
-  if (!_action)
-    return;
-  if (_active != _bounds.contains(loc)) {
-    _active = !_active;
-    _action->act(_active);
+  if (_action && _active != _bounds.contains(loc))
+    _action->act(_active = !_active);
+}
+
+void checkaxis(const unsigned char x, const unsigned char y, G13_StickZone &m_zone1, G13_StickZone &m_zone2) {
+  if (y < 127 - 50 || y > 127 + 50) {
+    unsigned char x2 = x>>1;
+    if (x2 + 64 > y) {
+      if (191 - x2 > y) {
+        m_zone1.latch(true);
+        m_zone2.latch(false);
+      } else {
+        m_zone1.latch(false);
+        m_zone2.latch(false);
+      }
+    } else if (191 - x2 < y) {
+      m_zone1.latch(false);
+      m_zone2.latch(true);
+    } else {
+      m_zone1.latch(false);
+      m_zone2.latch(false);
+    }
+  } else {
+    m_zone1.latch(false);
+    m_zone2.latch(false);
   }
+}
+
+void G13_StickZone::latch(const bool state) {
+  if (_action && _active != state)
+    _action->act(_active = !_active);
 }
 
 G13_StickZone::G13_StickZone(G13_Stick &stick, const std::string &name,
@@ -108,11 +133,16 @@ G13_StickZone::G13_StickZone(G13_Stick &stick, const std::string &name,
 }
 
 void G13_Stick::ParseJoystick(const unsigned char *buf) {
-  m_current_pos.x = buf[1];
-  m_current_pos.y = buf[2];
+  if (m_stick_mode == STICK_KEYS) {
+    checkaxis(buf[1],buf[2],m_zones[0],m_zones[1]);
+    checkaxis(buf[2],buf[1],m_zones[2],m_zones[3]);
+    return;
+  }
+  //m_current_pos.x = buf[1];
+  //m_current_pos.y = buf[2];
 
   // update targets if we're in calibration mode
-  switch (m_stick_mode) {
+  /*switch (m_stick_mode) {
   case STICK_ABSOLUTE:
     break;
   case STICK_KEYS:
@@ -130,47 +160,75 @@ void G13_Stick::ParseJoystick(const unsigned char *buf) {
     m_bounds.expand(m_current_pos);
     return;
   }
-/* TODO: Transform zone so we're not constantly transforming position
- *  Is this even necessary? Zones could just be tweaked manually and
- *  north is currently unused. Four-point zones would be more powerful
-  // determine our normalized position
-  double dx; // = 0.5
-  if (m_current_pos.x <= m_center_pos.x) {
-    dx = m_current_pos.x - m_bounds.tl.x;
-    dx /= (m_center_pos.x - m_bounds.tl.x) * 2;
-  } else {
-    dx = m_bounds.br.x - m_current_pos.x;
-    dx /= (m_bounds.br.x - m_center_pos.x) * 2;
-    dx = 1.0 - dx;
-  }
-  double dy; // = 0.5;
-  if (m_current_pos.y <= m_center_pos.y) {
-    dy = m_current_pos.y - m_bounds.tl.y;
-    dy /= (m_center_pos.y - m_bounds.tl.y) * 2;
-  } else {
-    dy = m_bounds.br.y - m_current_pos.y;
-    dy /= (m_bounds.br.y - m_center_pos.y) * 2;
-    dy = 1.0 - dy;
-  }
-
-  G13_DBG("x=" << m_current_pos.x << " y=" << m_current_pos.y << " dx=" << dx
-               << " dy=" << dy);
-  G13_ZoneCoord jpos(dx, dy);*/
   if (m_stick_mode == STICK_ABSOLUTE) {
     _keypad.SendEvent(EV_ABS, ABS_X, m_current_pos.x);
     _keypad.SendEvent(EV_ABS, ABS_Y, m_current_pos.y);
 
   } else if (m_stick_mode == STICK_KEYS) {
+    if (m_current_pos.y < 127 - 50 || m_current_pos.y > 127 + 50) {
+      unsigned char x2 = m_current_pos.x>>1;
+      if (x2 + 64 > m_current_pos.y) {
+	if (191 - x2 > m_current_pos.y) {
+          //G13_OUT("up DOWN");
+	  m_zones[0].latch(true);
+	  m_zones[1].latch(false);
+	} else {
+          //G13_OUT("up down");
+	  m_zones[0].latch(false);
+	  m_zones[1].latch(false);
+	}
+      } else if (191 - x2 < m_current_pos.y) {
+        //G13_OUT("UP down");
+        m_zones[0].latch(false);
+        m_zones[1].latch(true);
+      } else {
+        //G13_OUT("up down");
+        m_zones[0].latch(false);
+        m_zones[1].latch(false);
+      }
+    } else {
+      //G13_OUT("up down");
+      m_zones[0].latch(false);
+      m_zones[1].latch(false);
+    }
+    if (m_current_pos.x < 127 - 50 || m_current_pos.x > 127 + 50) {
+      unsigned char y2 = m_current_pos.y>>1;
+      if (y2 + 64 > m_current_pos.x) {
+        if (191 - y2 > m_current_pos.x) {
+          //G13_OUT("RIGHT left");
+          m_zones[2].latch(true);
+          m_zones[3].latch(false);
+	} else {
+          //G13_OUT("right left");
+          m_zones[2].latch(false);
+          m_zones[3].latch(false);
+	}
+      } else if (191 - y2 < m_current_pos.x) {
+        //G13_OUT("right LEFT");
+        m_zones[2].latch(false);
+        m_zones[3].latch(true);
+      } else {
+        //G13_OUT("right left");
+        m_zones[2].latch(false);
+        m_zones[3].latch(false);
+      }
+    } else {
+      //G13_OUT("right left");
+      m_zones[2].latch(false);
+      m_zones[3].latch(false);
+    }
+    return;
+
     // BOOST_FOREACH (G13_StickZone& zone, m_zones) { zone.test(jpos); }
     for (auto &zone : m_zones) {
       zone.test(G13_ZoneCoord(m_current_pos.x, m_current_pos.y));
     }
     return;
 
-  } else {
+  } else {*/
     /*    send_event(g13->uinput_file, EV_REL, REL_X, stick_x/16 - 8);
      SendEvent(g13->uinput_file, EV_REL, REL_Y, stick_y/16 - 8);*/
-  }
+  //}
 }
 
 } // namespace G13

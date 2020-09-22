@@ -12,6 +12,8 @@
 #include "logo.hpp"
 #include <fstream>
 #include <unistd.h>
+#include <chrono>
+#include <thread>
 
 namespace G13 {
 // *************************************************************************
@@ -172,7 +174,7 @@ int G13_Device::ReadKeypresses() {
   int size = 0;
   int error =
       libusb_interrupt_transfer(handle, LIBUSB_ENDPOINT_IN | G13_KEY_ENDPOINT,
-                                buffer, G13_REPORT_SIZE, &size, 100);
+                                buffer, G13_REPORT_SIZE, &size, G13_KEY_READ_TIMEOUT);
 
   if (error && error != LIBUSB_ERROR_TIMEOUT) {
     G13_ERR("Error while reading keys: " << DescribeLibusbErrorCode(error));
@@ -182,10 +184,19 @@ int G13_Device::ReadKeypresses() {
     }
   }
   if (size == G13_REPORT_SIZE) {
+    // output state report
+    /*std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+    for(int i=0; i<size; ++i)
+      ss << std::setw(2) << static_cast<unsigned>(buffer[i]);
+    G13_OUT(ss.str());*/
+
     parse_joystick(buffer);
     m_currentProfile->ParseKeys(buffer);
     SendEvent(EV_SYN, SYN_REPORT, 0);
   }
+  if (G13_KEY_READ_MIN_TIME && !error)
+    std::this_thread::sleep_for(std::chrono::milliseconds(G13_KEY_READ_MIN_TIME));
   return 0;
 }
 
@@ -193,7 +204,7 @@ void G13_Device::ReadConfigFile(const std::string &filename) {
   std::ifstream s(filename);
 
   G13_OUT("reading configuration from " << filename);
-  if (s.fail()) G13_LOG(log4cpp::Priority::ERROR << "Error: " << strerror(errno));
+  if (s.fail()) G13_LOG(log4cpp::Priority::ERROR << strerror(errno));
   else while (s.good()) {
     // grab a line
     char buf[1024];

@@ -172,6 +172,7 @@ public:
 
   // void ParseKey(unsigned char* byte, G13_Device* g13);
   void test(const G13_ZoneCoord &loc);
+  void latch(const bool state);
   void set_bounds(const G13_ZoneBounds &bounds) { _bounds = bounds; }
 
 protected:
